@@ -476,3 +476,30 @@ fn edl_frame_rate_comment_keeps_overrides_and_unannotated_fallback() {
     assert_eq!(imp.project.sequence(only_seq(&imp)).unwrap().settings.frame_rate, FrameRate::FPS_25);
     assert!(report.mentions("repeated FilmCraft frame-rate"));
 }
+
+#[test]
+fn edl_extreme_positive_rates_use_saturating_time_arithmetic() {
+    let event = "TITLE: Extreme\nFCM: NON-DROP FRAME\n001 CAM V C 00:00:00:00 00:00:01:00 00:00:00:00 00:00:01:00\n";
+    for rate in [FrameRate::new(i64::MAX, 1), FrameRate::new(1, i64::MAX)] {
+        let text = format!("* FILMCRAFT FRAME RATE: {}/{}\n{event}", rate.num, rate.den);
+        let (imp, _) = import(text.as_bytes(), Format::Edl, None).unwrap();
+        let seq = imp.project.sequence(only_seq(&imp)).unwrap();
+        assert_eq!(seq.settings.frame_rate, rate);
+        assert_eq!(seq.video_tracks[0].items[0].duration, if rate.num == i64::MAX { Tick(filmcraft_time::TICKS_PER_SECOND) } else { Tick(i64::MAX) });
+        let (imp, _) = import_with(event.as_bytes(), Format::Edl, &ImportOptions { edl_frame_rate: Some(rate), ..Default::default() }).unwrap();
+        let seq = imp.project.sequence(only_seq(&imp)).unwrap();
+        assert_eq!(seq.settings.frame_rate, rate);
+        assert_eq!(seq.video_tracks[0].items[0].duration, if rate.num == i64::MAX { Tick(filmcraft_time::TICKS_PER_SECOND) } else { Tick(i64::MAX) });
+    }
+}
+
+#[test]
+fn edl_drop_frame_flag_only_applies_at_supported_rates() {
+    let text = "* FILMCRAFT FRAME RATE: 25/1\nTITLE: Conflicting FCM\nFCM: DROP FRAME\n001 CAM V C 00:00:59:00 00:01:00:00 00:00:59:00 00:01:00:00\n";
+    let (imp, _) = import(text.as_bytes(), Format::Edl, None).unwrap();
+    let seq = imp.project.sequence(only_seq(&imp)).unwrap();
+    assert_eq!(seq.settings.frame_rate, FrameRate::FPS_25);
+    assert!(!seq.settings.drop_frame);
+    assert_eq!(seq.video_tracks[0].items[0].start, FrameRate::FPS_25.tick_of(1475));
+    assert_eq!(seq.video_tracks[0].items[0].duration, FrameRate::FPS_25.tick_of(25));
+}

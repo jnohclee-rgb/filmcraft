@@ -318,3 +318,27 @@ fn file_import_edl_rate_keeps_fallback_comment_and_override_precedence() {
         assert_eq!(seq.video_tracks[0].items[0].duration, rate.tick_of(8 * rate.timecode_base()));
     }
 }
+
+#[test]
+fn file_import_extreme_edl_rates_use_saturating_time_arithmetic() {
+    let d = tmp_dir("edl-extreme-rate");
+    let doc = d.join("cut.edl");
+    let event = "TITLE: Extreme\nFCM: NON-DROP FRAME\n001 CAM V C 00:00:00:00 00:00:01:00 00:00:00:00 00:00:01:00\n";
+    for (num, den) in [(i64::MAX, 1), (1, i64::MAX)] {
+        for annotated in [false, true] {
+            let text = if annotated { format!("* FILMCRAFT FRAME RATE: {num}/{den}\n{event}") } else { event.to_owned() };
+            std::fs::write(&doc, text).unwrap();
+            let mut params = json!({"paths":[doc.to_string_lossy()]});
+            if !annotated {
+                params["edlFrameRate"] = json!({"num":num,"den":den});
+            }
+            let mut s = Session::default();
+            let r = s.execute("file.import", params).unwrap();
+            let seq = s.project.sequence(ItemId(r["sequences"][0].as_u64().unwrap())).unwrap();
+            let rate = filmcraft_time::FrameRate::new(num, den);
+            assert_eq!(seq.settings.frame_rate, rate);
+            assert_eq!(seq.video_tracks[0].items[0].duration, if rate.num == i64::MAX { Tick(filmcraft_time::TICKS_PER_SECOND) } else { Tick(i64::MAX) });
+        }
+    }
+    let _ = std::fs::remove_dir_all(d);
+}

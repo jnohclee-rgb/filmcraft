@@ -202,3 +202,17 @@ use `{"num":24000,"den":1001}` for 23.976 fps. This overrides a FilmCraft EDL
 frame-rate comment. If omitted, the comment or normal EDL rate inference applies.
 Other interchange formats retain the rate stored in their document. Invalid rate
 parameters return an error before `replace` can clear the current project.
+
+The rate comment is written after `FCM:` on every FilmCraft EDL export, including
+rates that the event timecodes already identify. This changes exported EDL bytes;
+compatibility with external editors or conform tools has not been verified.
+
+`FCM: DROP FRAME` applies drop-frame counting only when the selected rate supports
+it (NTSC rates such as 30000/1001). An explicit rate or comment of 25/1 therefore
+imports as 25 fps non-drop-frame, even if `FCM:` says `DROP FRAME`.
+
+Positive rates are not restricted to a video-rate range. Frame/time conversions
+use wide, saturating arithmetic: values outside the integer frame or tick range
+clamp to its limit. Extreme ratios such as 9223372036854775807/1 or
+1/9223372036854775807 can therefore lose timing precision; accepting them does not
+make them practical video rates.
